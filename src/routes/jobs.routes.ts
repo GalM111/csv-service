@@ -3,6 +3,8 @@ import multer from "multer";
 import path from "path";
 import { ensureUploadsDir } from "../services/csvJob.service";
 import { uploadCsv, getJob, listJobs } from "../controllers/jobs.controller";
+import { streamJob } from "../controllers/jobs.controller";
+
 
 const uploadDir = ensureUploadsDir();
 
@@ -36,3 +38,4 @@ export const jobsRouter = Router();
 jobsRouter.post("/upload", upload.single("file"), uploadCsv);
 jobsRouter.get("/:id", getJob);
 jobsRouter.get("/", listJobs);
+jobsRouter.get("/:id/stream", streamJob);
