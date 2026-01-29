@@ -100,7 +100,3 @@ An Express + TypeScript API for importing customer CSVs into MongoDB. Uploads ar
 - Watch server logs for Mongo connection + queue activity.
 - Purge large `uploads/` folders if storage becomes an issue; processed files are removed automatically.
 
-## Future Enhancements
-- Persist the queue in Redis/BullMQ for crash recovery and horizontal scaling.
-- Support retrying failed jobs or reprocessing selected rows.
-- Add authentication/RBAC for multi-tenant deployments.
