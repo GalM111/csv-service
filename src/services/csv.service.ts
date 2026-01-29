@@ -72,7 +72,6 @@ export async function processFile(options: ProcessFileOptions): Promise<CsvProgr
     await emitProgress(true);
     try {
         for await (const raw of stream as AsyncIterable<Record<string, unknown>>) {
-            // Explicit pause/resume to ensure sequential async work
             stream.pause?.();
             const normalized = normalizeRow(raw);
             const parsed = customerRowSchema.safeParse(normalized);

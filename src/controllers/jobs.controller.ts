@@ -17,8 +17,6 @@ export async function uploadCsv(req: Request, res: Response) {
     const job = await createPendingJob(req.file.originalname);
 
     jobQueue.enqueue({ jobId: job._id.toString(), filePath: req.file.path });
-
-    // Return immediately (don’t await processing)
     res.status(201).json({ jobId: job._id.toString() });
 }
 
@@ -90,19 +88,16 @@ export async function streamJob(req: Request, res: Response, next: NextFunction)
             return res.status(400).json({ message: "Invalid job id" });
         }
 
-        // SSE headers
         res.status(200);
         res.setHeader("Content-Type", "text/event-stream");
         res.setHeader("Cache-Control", "no-cache, no-transform");
         res.setHeader("Connection", "keep-alive");
-        res.setHeader("X-Accel-Buffering", "no"); // helpful for nginx
+        res.setHeader("X-Accel-Buffering", "no");
         (req.socket as any).setTimeout?.(0);
 
-        // Reconnect hint for EventSource (ms)
         res.write("retry: 2000\n\n");
         res.flushHeaders?.();
 
-        // Initial state
         const job = await Job.findById(jobId).lean();
         if (!job) {
             res.write(`event: error\ndata: ${JSON.stringify({ message: "job not found" })}\n\n`);
@@ -114,21 +109,17 @@ export async function streamJob(req: Request, res: Response, next: NextFunction)
             sendEvent(res, "progress", payload);
         }
 
-        // If job already finished, send done + close immediately
         if (isTerminal(job.status)) {
             sendEvent(res, "done", { jobId, status: job.status });
             return res.end();
         }
 
-        // Register client for ongoing updates
         addClient(jobId, res);
 
-        // Keep-alive ping
         const ping = setInterval(() => {
             res.write(`: ping\n\n`);
         }, 15000);
 
-        // Cleanup
         req.on("close", () => {
             clearInterval(ping);
             removeClient(jobId, res);

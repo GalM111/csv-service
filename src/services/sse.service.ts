@@ -25,7 +25,6 @@ export function removeClient(jobId: string, res: Response) {
 }
 
 export function sendEvent(res: Response, event: string, data: unknown) {
-    // SSE format: event + data + blank line
     writeSafe(res, `event: ${event}\n`);
     writeSafe(res, `data: ${JSON.stringify(data)}\n\n`);
 }
@@ -41,9 +40,6 @@ export function broadcast(jobId: string, event: string, data: unknown) {
     }
 }
 
-/**
- * Send final event and close all open connections for that job.
- */
 export function broadcastAndClose(jobId: string, event: string, data: unknown) {
     const set = clientsByJobId.get(jobId);
     if (!set) return;

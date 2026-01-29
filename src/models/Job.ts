@@ -5,7 +5,6 @@ export type JobStatus = "pending" | "processing" | "completed" | "failed";
 export type JobError = {
     rowNumber: number;
     message: string;
-    // Optional extra context (handy for debugging / bonus error report later)
     row?: Record<string, unknown>;
 };
 

@@ -12,7 +12,6 @@ export function createApp() {
     app.use(express.json());
 
     app.use("/api/jobs", jobsRouter);
-
     app.get("/health", (_req, res) => res.json({ ok: true }));
 
     app.use(errorMiddleware);

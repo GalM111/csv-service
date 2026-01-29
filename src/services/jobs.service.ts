@@ -99,7 +99,6 @@ async function safeDelete(filePath: string) {
     try {
         await fs.unlink(filePath);
     } catch {
-        // ignore
     }
 }
 

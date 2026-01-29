@@ -28,7 +28,6 @@ function csvOnly(
 const upload = multer({
     storage,
     fileFilter: csvOnly,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 });
 
 export const jobsRouter = Router();
