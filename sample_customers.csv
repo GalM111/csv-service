@@ -1,0 +1,7 @@
+name,email,phone,company
+John Doe,john.doe@example.com,555-0100,Acme Corp
+Invalid User,not-an-email,555-0110,Bad Data Inc
+,valid@example.com,555-0111,No Name Corp
+Another User,another@example.com,555-0113,
+Final User,final@example.com,,Good Company
+

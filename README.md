@@ -1,13 +1,15 @@
 # CSV Processing Service
 
-An Express + TypeScript API for importing large customer CSVs into MongoDB. Files are uploaded via Multer, validated row-by-row with Zod, and inserted asynchronously so clients receive a `jobId` immediately and can poll for progress.
+An Express + TypeScript API for importing customer CSVs into MongoDB. Uploads arrive through Multer, are validated row-by-row with Zod, and are processed by an in-memory FIFO queue so clients receive a `jobId` immediately while a single worker handles imports and streams progress via SSE.
 
 ## Features
-- CSV-only upload endpoint with disk buffering, 10 MB limit, and safe filenames.
-- Background importer that counts rows up-front, validates fields, enforces unique emails, and stores detailed error logs.
-- Job tracking API that exposes status (`pending | processing | completed | failed`), processed row counts, and timestamps.
-- MongoDB models for both `Job` metadata and ingested `Customer` records.
-- Health-check endpoint plus centralized error middleware/logging.
+- CSV-only upload endpoint with disk buffering, 10 MB limit, and sanitized filenames.
+- In-memory FIFO job queue + dedicated worker to guarantee sequential processing and controlled concurrency.
+- Streaming CSV importer that counts rows, validates/normalizes fields, enforces unique emails, and records each failed row with full data.
+- Job tracking REST endpoints plus `/api/jobs/:id/stream` SSE feed reporting status (`pending | processing | completed | failed`), row counts, timestamps, and errors.
+- Downloadable CSV error report (`rowNumber,name,email,phone,company,error`) per job.
+- MongoDB models for `Job` metadata and ingested `Customer` records.
+- Health-check endpoint and centralized error middleware/logging.
 
 ## Tech Stack
 - Node.js 20+, TypeScript, Express 5
@@ -22,36 +24,40 @@ An Express + TypeScript API for importing large customer CSVs into MongoDB. File
    npm install
    ```
 2. **Configure environment**
-   - Copy `.env` (or create one) with:
-     ```
-     PORT=4000
-     MONGO_URI=mongodb://127.0.0.1:27017/csv_import
-     ```
-   - `PORT` defaults to `3000` if omitted; `MONGO_URI` must point to a reachable MongoDB instance.
+   ```env
+   PORT=4000
+   MONGO_URI=mongodb://127.0.0.1:27017/csv_import
+   ```
+   `PORT` defaults to `3000` if omitted.
 3. **Run the service**
-   - Development (ts-node-dev): `npm run dev`
-   - Production build: `npm run build && npm start`
-4. **Optional**: use the provided `sample_customers.csv` to test uploads.
+   - Development: `npm run dev`
+   - Production: `npm run build && npm start`
+4. **Test** using the provided `sample_customers.csv`.
 
-The server starts via `src/server.ts`, which connects to Mongo (`connectDb`) and bootstraps the Express app defined in `src/app.ts`.
+`src/server.ts` connects to Mongo, starts the queue worker, and boots the Express app defined in `src/app.ts`.
 
 ## Directory Overview
-- `src/routes/jobs.routes.ts` – Multer setup and `/api/jobs` routes.
-- `src/controllers/jobs.controller.ts` – Upload handler + CRUD endpoints.
-- `src/services/csvJob.service.ts` – Streaming processor, validation, and progress tracking.
+- `src/routes/jobs.routes.ts` – Multer config + `/api/jobs` routes (upload, list, SSE, error report).
+- `src/controllers/jobs.controller.ts` – Upload handler, SSE streaming, job CRUD, CSV error downloads.
+- `src/services/jobs.service.ts` – Job lifecycle management, Mongo updates, SSE broadcasting, error report builder.
+- `src/services/csv.service.ts` – Streaming parser, validation, and per-row persistence.
+- `src/queue/` – In-memory queue class and singleton worker wiring.
+- `src/services/sse.service.ts` – SSE client registry + helpers.
 - `src/models/{Job,Customer}.ts` – Mongoose schemas.
-- `uploads/` – Temporary storage for incoming CSVs (auto-created).
+- `uploads/` – Temp file storage (auto-created).
 
 ## API Reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/jobs/upload` | Upload a CSV (`multipart/form-data`, field name `file`). Returns `{ jobId }` immediately while the file is processed in the background. Rejects non-CSV files and responds `400` if `file` is missing. |
-| `GET`  | `/api/jobs/:id` | Fetch a single job’s latest status, counts, errors, `createdAt`, and optional `completedAt`. Validates that `:id` is a Mongo ObjectId. |
-| `GET`  | `/api/jobs` | List jobs newest-first for dashboard/polling experiences. |
-| `GET`  | `/health` | Lightweight readiness probe returning `{ ok: true }`. |
+| `POST` | `/api/jobs/upload` | Upload CSV via `multipart/form-data` (`file`). Returns `{ jobId }` immediately; rejects missing or non-CSV files. |
+| `GET`  | `/api/jobs/:id` | Fetch a job’s latest status, counts, errors, timestamps. Validates `:id`. |
+| `GET`  | `/api/jobs/:id/stream` | Server-Sent Events stream emitting `progress` updates and a final `done` event. |
+| `GET`  | `/api/jobs/:id/error-report` | Download CSV of failed rows with columns `rowNumber,name,email,phone,company,error`. |
+| `GET`  | `/api/jobs` | List jobs newest-first. |
+| `GET`  | `/health` | Returns `{ ok: true }`. |
 
-### Job Document Shape
+### Job Document Snapshot
 ```jsonc
 {
   "_id": "67b0035d2f5c34b2d1370c90",
@@ -65,33 +71,36 @@ The server starts via `src/server.ts`, which connects to Mongo (`connectDb`) and
     {
       "rowNumber": 42,
       "message": "email must be unique",
-      "row": { "email": "alex@example.com", "company": "Acme", "...": "..." }
+      "row": { "name": "Alex", "email": "alex@example.com", "company": "Acme", "phone": "" }
     }
   ],
-  "createdAt": "2026-01-28T21:55:31.012Z",
-  "completedAt": null
+  "startedAt": "2026-01-29T18:12:31.012Z",
+  "completedAt": null,
+  "createdAt": "2026-01-29T18:10:02.447Z"
 }
 ```
 
 ### Typical Flow
 1. Client uploads CSV via `POST /api/jobs/upload`.
-2. Service stores the file under `uploads/` and creates a `Job` with `pending` status.
-3. Background worker (`runJobInBackground`) parses the file, validates each row, writes `Customer` entries, and periodically saves progress.
-4. Client polls `GET /api/jobs/:id` (or lists jobs) until `status` is `completed` or `failed`.
+2. Service stores the file under `uploads/`, creates a `Job` with `pending` status, and enqueues `{ jobId, filePath }`.
+3. The singleton worker dequeues jobs sequentially, parses rows, inserts customers, updates Mongo progress, and broadcasts SSE events.
+4. Clients can:
+   - Listen to `/api/jobs/:id/stream` for live updates.
+   - Poll `/api/jobs/:id` or list jobs.
+   - Download `/api/jobs/:id/error-report` once processing reaches a terminal state.
 
 ## Validation Rules
 - `name` / `company`: required non-empty strings.
-- `email`: required, normalized to lowercase, must be a valid format and unique across all customers.
-- `phone`: optional string (empty string is ignored).
-- Any validation or insert error adds an entry to `job.errors` with the failing row number and message.
+- `email`: required, lowercase normalized, valid format, unique across customers.
+- `phone`: optional string (empty treated as absent).
+- Any validation or insert failure records `rowNumber`, `message`, and the normalized row.
 
 ## Testing Tips
-- Use a REST client (Insomnia, Postman, VS Code Thunder Client) with `multipart/form-data`.
-- Monitor terminal logs for `MongoDB connected` and importer progress logs.
-- Clean up stale uploads if needed; the service automatically deletes processed files.
+- Use a REST client (Insomnia/Postman/etc.) with `multipart/form-data`.
+- Watch server logs for Mongo connection + queue activity.
+- Purge large `uploads/` folders if storage becomes an issue; processed files are removed automatically.
 
 ## Future Enhancements
-- Persist background jobs to a queue (BullMQ, RabbitMQ) for horizontal scaling.
-- Stream job progress via WebSockets or Server-Sent Events instead of polling.
-- Export failure reports as downloadable CSV/JSON.
-
+- Persist the queue in Redis/BullMQ for crash recovery and horizontal scaling.
+- Support retrying failed jobs or reprocessing selected rows.
+- Add authentication/RBAC for multi-tenant deployments.
