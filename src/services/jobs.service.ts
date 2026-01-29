@@ -102,3 +102,57 @@ async function safeDelete(filePath: string) {
         // ignore
     }
 }
+
+type ErrorReport = {
+    filename: string;
+    csv: string;
+    errorCount: number;
+};
+
+const ERROR_REPORT_HEADER = ["rowNumber", "name", "email", "phone", "company", "error"] as const;
+
+export async function buildJobErrorReport(jobId: string): Promise<ErrorReport | null> {
+    const job = await Job.findById(jobId).lean<JobDoc>();
+    if (!job) return null;
+
+    const rows = (job.errors ?? []).map((err) => formatErrorRow(err));
+    const csvLines = [ERROR_REPORT_HEADER, ...rows].map((cols) => cols.map(escapeCsv).join(","));
+    const safeBase = sanitizeFilename(job.filename || "job");
+    const filename = `${safeBase}_errors.csv`;
+
+    return {
+        filename,
+        csv: csvLines.join("\n"),
+        errorCount: rows.length,
+    };
+}
+
+function formatErrorRow(error: JobError): string[] {
+    const row = (error.row ?? {}) as Record<string, unknown>;
+    return [
+        String(error.rowNumber ?? ""),
+        valueOrEmpty(row.name),
+        valueOrEmpty(row.email),
+        valueOrEmpty(row.phone),
+        valueOrEmpty(row.company),
+        error.message ?? "",
+    ];
+}
+
+function valueOrEmpty(value: unknown) {
+    return typeof value === "string" || typeof value === "number" ? String(value) : "";
+}
+
+function escapeCsv(value: string) {
+    if (value === undefined || value === null) return "";
+    if (value.includes('"') || value.includes(",") || value.includes("\n")) {
+        return `"${value.replace(/"/g, '""')}"`;
+    }
+    return value;
+}
+
+function sanitizeFilename(filename: string) {
+    const base = filename.replace(/\.[^.]+$/, "");
+    const safe = base.replace(/[^\w.-]+/g, "_");
+    return safe || "job";
+}

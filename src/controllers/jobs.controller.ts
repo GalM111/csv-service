@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { Types } from "mongoose";
 import { Job, JobDoc } from "../models/Job";
-import { createPendingJob } from "../services/jobs.service";
+import { buildJobErrorReport, createPendingJob } from "../services/jobs.service";
 import { jobQueue } from "../queue/queue";
 import { addClient, removeClient, sendEvent } from "../services/sse.service";
 
@@ -37,6 +37,24 @@ export async function getJob(req: Request, res: Response) {
 export async function listJobs(_req: Request, res: Response) {
     const jobs = await Job.find().sort({ createdAt: -1 }).lean();
     res.json(jobs);
+}
+
+export async function downloadErrorReport(req: Request, res: Response) {
+    const rawId = req.params.id;
+    const jobId = Array.isArray(rawId) ? rawId[0] : rawId;
+
+    if (!jobId || !Types.ObjectId.isValid(jobId)) {
+        return res.status(400).json({ message: "Invalid job id" });
+    }
+
+    const report = await buildJobErrorReport(jobId);
+    if (!report) {
+        return res.status(404).json({ message: "Job not found" });
+    }
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${report.filename}"`);
+    res.send(report.csv);
 }
 
 

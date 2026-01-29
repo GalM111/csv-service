@@ -22,7 +22,7 @@ export type ProcessFileOptions = {
 };
 
 const DEFAULT_PROGRESS_EVERY = 25;
-const DEFAULT_MAX_ERRORS = 50;
+const DEFAULT_MAX_ERRORS = Number.POSITIVE_INFINITY;
 
 function normalizeRow(raw: Record<string, unknown>) {
     return {
@@ -74,7 +74,8 @@ export async function processFile(options: ProcessFileOptions): Promise<CsvProgr
         for await (const raw of stream as AsyncIterable<Record<string, unknown>>) {
             // Explicit pause/resume to ensure sequential async work
             stream.pause?.();
-            const parsed = customerRowSchema.safeParse(normalizeRow(raw));
+            const normalized = normalizeRow(raw);
+            const parsed = customerRowSchema.safeParse(normalized);
 
             if (!parsed.success) {
                 progress.failedCount += 1;
@@ -85,7 +86,7 @@ export async function processFile(options: ProcessFileOptions): Promise<CsvProgr
                     progress.errors.push({
                         rowNumber: currentRow,
                         message,
-                        row: raw as Record<string, unknown>,
+                        row: normalized,
                     });
                 }
                 currentRow += 1;

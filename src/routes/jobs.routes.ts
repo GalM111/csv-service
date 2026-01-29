@@ -1,8 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import path from "path";
-import { uploadCsv, getJob, listJobs } from "../controllers/jobs.controller";
-import { streamJob } from "../controllers/jobs.controller";
+import { uploadCsv, getJob, listJobs, streamJob, downloadErrorReport } from "../controllers/jobs.controller";
 import { ensureUploadsDir } from "../utils/uploads";
 
 
@@ -34,8 +33,8 @@ const upload = multer({
 
 export const jobsRouter = Router();
 
-// Required by assignment :contentReference[oaicite:6]{index=6}
 jobsRouter.post("/upload", upload.single("file"), uploadCsv);
+jobsRouter.get("/:id/error-report", downloadErrorReport);
+jobsRouter.get("/:id/stream", streamJob);
 jobsRouter.get("/:id", getJob);
 jobsRouter.get("/", listJobs);
-jobsRouter.get("/:id/stream", streamJob);
