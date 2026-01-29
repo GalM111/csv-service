@@ -3,7 +3,7 @@
 An Express + TypeScript API for importing customer CSVs into MongoDB. Uploads arrive through Multer, are validated row-by-row with Zod, and are processed by an in-memory FIFO queue so clients receive a `jobId` immediately while a single worker handles imports and streams progress via SSE.
 
 ## Features
-- CSV-only upload endpoint with disk buffering, 10 MB limit, and sanitized filenames.
+- CSV-only upload endpoint with disk buffering and sanitized filenames.
 - In-memory FIFO job queue + dedicated worker to guarantee sequential processing and controlled concurrency.
 - Streaming CSV importer that counts rows, validates/normalizes fields, enforces unique emails, and records each failed row with full data.
 - Job tracking REST endpoints plus `/api/jobs/:id/stream` SSE feed reporting status (`pending | processing | completed | failed`), row counts, timestamps, and errors.
@@ -95,8 +95,4 @@ An Express + TypeScript API for importing customer CSVs into MongoDB. Uploads ar
 - `phone`: optional string (empty treated as absent).
 - Any validation or insert failure records `rowNumber`, `message`, and the normalized row.
 
-## Testing Tips
-- Use a REST client (Insomnia/Postman/etc.) with `multipart/form-data`.
-- Watch server logs for Mongo connection + queue activity.
-- Purge large `uploads/` folders if storage becomes an issue; processed files are removed automatically.
 
