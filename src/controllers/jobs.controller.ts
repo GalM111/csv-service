@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from "express";
 import { Types } from "mongoose";
 import { Job, JobDoc } from "../models/Job";
-import { runJobInBackground } from "../services/csvJob.service";
+import { createPendingJob } from "../services/jobs.service";
+import { jobQueue } from "../queue/queue";
 import { addClient, removeClient, sendEvent } from "../services/sse.service";
 
 export async function uploadCsv(req: Request, res: Response) {
@@ -9,21 +10,16 @@ export async function uploadCsv(req: Request, res: Response) {
         return res.status(400).json({ message: "CSV file is required (field name: file)" });
     }
 
-    const job = await Job.create({
-        filename: req.file.originalname,
-        status: "pending",
-        totalRows: 0,
-        processedRows: 0,
-        successCount: 0,
-        failedCount: 0,
-        errors: [],
-    });
+    if (!req.file.path) {
+        return res.status(500).json({ message: "Uploaded file path missing" });
+    }
+
+    const job = await createPendingJob(req.file.originalname);
+
+    jobQueue.enqueue({ jobId: job._id.toString(), filePath: req.file.path });
 
     // Return immediately (don’t await processing)
     res.status(201).json({ jobId: job._id.toString() });
-
-    // Process in background
-    runJobInBackground(job._id.toString(), req.file.path);
 }
 
 export async function getJob(req: Request, res: Response) {
@@ -49,14 +45,17 @@ function toProgressPayload(jobId: string, job: JobDoc | null) {
     const errorsLength = Array.isArray(job.errors) ? job.errors.length : 0;
     return {
         jobId,
+        filename: job.filename,
         status: job.status,
         totalRows: job.totalRows,
         processedRows: job.processedRows,
         successCount: job.successCount,
         failedCount: job.failedCount,
         errorCount: errorsLength,
+        startedAt: job.startedAt,
         createdAt: job.createdAt,
         completedAt: job.completedAt,
+        lastError: job.lastError,
     };
 }
 

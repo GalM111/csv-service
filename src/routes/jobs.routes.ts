@@ -1,9 +1,9 @@
 import { Router } from "express";
 import multer from "multer";
 import path from "path";
-import { ensureUploadsDir } from "../services/csvJob.service";
 import { uploadCsv, getJob, listJobs } from "../controllers/jobs.controller";
 import { streamJob } from "../controllers/jobs.controller";
+import { ensureUploadsDir } from "../utils/uploads";
 
 
 const uploadDir = ensureUploadsDir();

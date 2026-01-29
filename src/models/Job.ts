@@ -18,8 +18,10 @@ export interface JobDoc {
     successCount: number;
     failedCount: number;
     errors: JobError[];
+    startedAt?: Date;
     createdAt: Date;
     completedAt?: Date;
+    lastError?: string;
 }
 
 const JobSchema = new Schema<JobDoc>(
@@ -42,7 +44,9 @@ const JobSchema = new Schema<JobDoc>(
                 row: { type: Schema.Types.Mixed, required: false },
             },
         ],
+        startedAt: { type: Date, required: false },
         completedAt: { type: Date, required: false },
+        lastError: { type: String, required: false },
     },
     { timestamps: { createdAt: true, updatedAt: true } }
 );
